@@ -3,6 +3,7 @@ import { FormEvent } from "react";
 import { ChangeEvent } from "react";
 import { useState } from "react";
 import * as pdfjs from "pdfjs-dist";
+import { ChatResponseData } from "./api/chat";
 
 // To get pdfjs working
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
@@ -68,15 +69,15 @@ export default function Home() {
       formData.append("pdf", file);
 
       try {
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          body: formData,
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        });
+        const response: ChatResponseData = await fetch(
+          "/api/chat",
+          {
+            method: "POST",
+            body: formData,
+          }
+        ).then((res) => res.json());
 
-        console.log(response);
+        console.log(response.result);
       } catch (error) {
         console.error(error);
       }
