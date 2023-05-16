@@ -1,11 +1,8 @@
 // Next.js API route support: https://nextjs.org/docs/api-routes/introduction
 import type { NextApiRequest, NextApiResponse } from "next";
-import { OpenAI } from "langchain/llms/openai";
-import { ConsoleCallbackHandler } from "langchain/callbacks";
-// @ts-ignore
-import multiparty from "multiparty";
-import fs from "fs";
-import { PDFExtract } from "pdf.js-extract";
+import { OpenAIEmbeddings } from "langchain/embeddings/openai";
+import { createClient } from "@supabase/supabase-js";
+import { SupabaseHybridSearch } from "langchain/retrievers/supabase";
 
 export type ChatResponseData = {
   result?: string;
@@ -16,75 +13,64 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<ChatResponseData>
 ) {
-  // // if (req.method === 'POST')
-
-  // const model = new OpenAI({
-  //   openAIApiKey: process.env.OPEN_API_KEY,
-  //   temperature: 0.1,
-  //   callbacks: [new ConsoleCallbackHandler()],
-  // });
-
-  // const response = await model.call("What's up?");
-
-  // console.log(response);
-
-  // return res
-  //   .status(200)
-  //   .json({ result: JSON.stringify(response) });
-
   if (req.method === "POST") {
-    const form = new multiparty.Form();
-
     try {
-      const form = new multiparty.Form();
-      const { fields, files } = await new Promise<any>(
-        (resolve, reject) => {
-          form.parse(
-            req,
-            (err: Error, fields: any, files: any) => {
-              if (err) reject({ err });
-              resolve({ fields, files });
-            }
-          );
+      if (
+        !process.env.SUPABASE_URL ||
+        !process.env.SUPABASE_PRIVATE_KEY ||
+        !process.env.OPEN_API_KEY
+      ) {
+        return res
+          .status(401)
+          .json({ error: "Missing API keys" });
+      }
+
+      console.log(req.body);
+
+      if (!req.body) {
+        return res
+          .status(400)
+          .json({ error: "Missing body for request" });
+      }
+
+      const supabaseClient = createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_PRIVATE_KEY
+      );
+
+      const embeddings = new OpenAIEmbeddings();
+
+      const retriever = new SupabaseHybridSearch(
+        embeddings,
+        {
+          client: supabaseClient,
+          similarityK: 2,
+          keywordK: 2,
+          tableName: "documents",
+          similarityQueryName: "match_documents",
         }
       );
 
-      // Access the uploaded file from files.pdf[0]
-      const file = files.pdf[0];
-      const filePath = file.path;
+      const { query } = req.body;
 
-      // Read the file data
-      const fileData = fs.readFileSync(filePath);
+      console.log(`Query was : ${query}`);
 
-      // Process the file data
-      const pdfExtract = new PDFExtract();
-      const data = await pdfExtract.extractBuffer(fileData);
+      const results = await retriever.getRelevantDocuments(
+        query
+      );
 
-      // Get the first page alone
-      const firstPage = data.pages[0];
+      console.log({ results });
 
-      const textContent = firstPage.content
-        .map((item) => (item.str === "" ? `\n` : item.str))
-        .join(" ")
-        .split("\n")
-        .toString();
-
-      res
-        .status(200)
-        .json({ result: JSON.stringify(textContent) });
+      return res.status(200).json({ result: "Found" });
     } catch (error) {
       console.error(error);
-      res.status(500).json({
+      return res.status(500).json({
         error: "Error processing the uploaded file",
       });
     }
   } else {
-    res.status(405).json({ error: "Method Not Allowed" });
+    return res
+      .status(405)
+      .json({ error: "Method Not Allowed" });
   }
 }
-
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
